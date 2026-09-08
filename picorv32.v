@@ -85,7 +85,8 @@ module picorv32 #(
 	parameter [31:0] LATCHED_IRQ = 32'h ffff_ffff,
 	parameter [31:0] PROGADDR_RESET = 32'h 0000_0000,
 	parameter [31:0] PROGADDR_IRQ = 32'h 0000_0010,
-	parameter [31:0] STACKADDR = 32'h ffff_ffff
+	parameter [31:0] STACKADDR = 32'h ffff_ffff,
+	parameter [ 0:0] ENABLE_ACCEL = 0
 ) (
 	input clk, resetn,
 	output reg trap,
@@ -156,7 +157,14 @@ module picorv32 #(
 
 	// Trace Interface
 	output reg        trace_valid,
-	output reg [35:0] trace_data
+	output reg [35:0] trace_data,
+
+	// Accelerator command interface (same clock/reset as the CPU)
+	output        accel_valid,
+	input         accel_ready,
+	output [ 6:0] accel_cmd,
+	output [31:0] accel_arg0,
+	output [31:0] accel_arg1
 );
 	localparam integer irq_timer = 0;
 	localparam integer irq_ebreak = 1;
@@ -166,7 +174,7 @@ module picorv32 #(
 	localparam integer regfile_size = (ENABLE_REGS_16_31 ? 32 : 16) + 4*ENABLE_IRQ*ENABLE_IRQ_QREGS;
 	localparam integer regindex_bits = (ENABLE_REGS_16_31 ? 5 : 4) + ENABLE_IRQ*ENABLE_IRQ_QREGS;
 
-	localparam WITH_PCPI = ENABLE_PCPI || ENABLE_MUL || ENABLE_FAST_MUL || ENABLE_DIV;
+	localparam WITH_PCPI = ENABLE_PCPI || ENABLE_MUL || ENABLE_FAST_MUL || ENABLE_DIV || ENABLE_ACCEL;
 
 	localparam [35:0] TRACE_BRANCH = {4'b 0001, 32'b 0};
 	localparam [35:0] TRACE_ADDR   = {4'b 0010, 32'b 0};
@@ -190,6 +198,16 @@ module picorv32 #(
 
 	assign pcpi_rs1 = reg_op1;
 	assign pcpi_rs2 = reg_op2;
+
+	// ACCEL: custom-1, funct3=0, rd=x0; funct7 selects the command.
+	// Operands are valid once PCPI has read both registers, including with
+	// a single-port register file. Acceptance retires the instruction.
+	wire accel_selected = ENABLE_ACCEL && pcpi_insn[6:0] == 7'b0101011 &&
+			pcpi_insn[14:12] == 3'b000 && pcpi_insn[11:7] == 5'b00000;
+	assign accel_valid = resetn && pcpi_valid && accel_selected;
+	assign accel_cmd = ENABLE_ACCEL ? pcpi_insn[31:25] : 7'b0;
+	assign accel_arg0 = ENABLE_ACCEL ? pcpi_rs1 : 32'b0;
+	assign accel_arg1 = ENABLE_ACCEL ? pcpi_rs2 : 32'b0;
 
 	wire [31:0] next_pc;
 
@@ -343,6 +361,15 @@ module picorv32 #(
 				pcpi_int_rd = pcpi_div_rd;
 			end
 		endcase
+
+		// Own the selected encoding even when external PCPI is enabled.
+		// Hold off the illegal-instruction timeout throughout backpressure.
+		if (accel_selected) begin
+			pcpi_int_wr = 0;
+			pcpi_int_rd = 0;
+			pcpi_int_wait = accel_valid;
+			pcpi_int_ready = accel_valid && accel_ready;
+		end
 	end
 
 
@@ -2539,7 +2566,8 @@ module picorv32_axi #(
 	parameter [31:0] LATCHED_IRQ = 32'h ffff_ffff,
 	parameter [31:0] PROGADDR_RESET = 32'h 0000_0000,
 	parameter [31:0] PROGADDR_IRQ = 32'h 0000_0010,
-	parameter [31:0] STACKADDR = 32'h ffff_ffff
+	parameter [31:0] STACKADDR = 32'h ffff_ffff,
+	parameter [ 0:0] ENABLE_ACCEL = 0
 ) (
 	input clk, resetn,
 	output trap,
@@ -2606,7 +2634,14 @@ module picorv32_axi #(
 
 	// Trace Interface
 	output        trace_valid,
-	output [35:0] trace_data
+	output [35:0] trace_data,
+
+	// Accelerator command interface (same clock/reset as the CPU)
+	output        accel_valid,
+	input         accel_ready,
+	output [ 6:0] accel_cmd,
+	output [31:0] accel_arg0,
+	output [31:0] accel_arg1
 );
 	wire        mem_valid;
 	wire [31:0] mem_addr;
@@ -2658,6 +2693,7 @@ module picorv32_axi #(
 		.CATCH_MISALIGN      (CATCH_MISALIGN      ),
 		.CATCH_ILLINSN       (CATCH_ILLINSN       ),
 		.ENABLE_PCPI         (ENABLE_PCPI         ),
+		.ENABLE_ACCEL        (ENABLE_ACCEL        ),
 		.ENABLE_MUL          (ENABLE_MUL          ),
 		.ENABLE_FAST_MUL     (ENABLE_FAST_MUL     ),
 		.ENABLE_DIV          (ENABLE_DIV          ),
@@ -2692,6 +2728,12 @@ module picorv32_axi #(
 		.pcpi_rd   (pcpi_rd   ),
 		.pcpi_wait (pcpi_wait ),
 		.pcpi_ready(pcpi_ready),
+
+		.accel_valid(accel_valid),
+		.accel_ready(accel_ready),
+		.accel_cmd  (accel_cmd  ),
+		.accel_arg0 (accel_arg0 ),
+		.accel_arg1 (accel_arg1 ),
 
 		.irq(irq),
 		.eoi(eoi),
@@ -2837,7 +2879,8 @@ module picorv32_wb #(
 	parameter [31:0] LATCHED_IRQ = 32'h ffff_ffff,
 	parameter [31:0] PROGADDR_RESET = 32'h 0000_0000,
 	parameter [31:0] PROGADDR_IRQ = 32'h 0000_0010,
-	parameter [31:0] STACKADDR = 32'h ffff_ffff
+	parameter [31:0] STACKADDR = 32'h ffff_ffff,
+	parameter [ 0:0] ENABLE_ACCEL = 0
 ) (
 	output trap,
 
@@ -2894,7 +2937,14 @@ module picorv32_wb #(
 	output        trace_valid,
 	output [35:0] trace_data,
 
-	output mem_instr
+	output mem_instr,
+
+	// Accelerator command interface (same clock/reset as the CPU)
+	output        accel_valid,
+	input         accel_ready,
+	output [ 6:0] accel_cmd,
+	output [31:0] accel_arg0,
+	output [31:0] accel_arg1
 );
 	wire        mem_valid;
 	wire [31:0] mem_addr;
@@ -2922,6 +2972,7 @@ module picorv32_wb #(
 		.CATCH_MISALIGN      (CATCH_MISALIGN      ),
 		.CATCH_ILLINSN       (CATCH_ILLINSN       ),
 		.ENABLE_PCPI         (ENABLE_PCPI         ),
+		.ENABLE_ACCEL        (ENABLE_ACCEL        ),
 		.ENABLE_MUL          (ENABLE_MUL          ),
 		.ENABLE_FAST_MUL     (ENABLE_FAST_MUL     ),
 		.ENABLE_DIV          (ENABLE_DIV          ),
@@ -2956,6 +3007,12 @@ module picorv32_wb #(
 		.pcpi_rd   (pcpi_rd   ),
 		.pcpi_wait (pcpi_wait ),
 		.pcpi_ready(pcpi_ready),
+
+		.accel_valid(accel_valid),
+		.accel_ready(accel_ready),
+		.accel_cmd  (accel_cmd  ),
+		.accel_arg0 (accel_arg0 ),
+		.accel_arg1 (accel_arg1 ),
 
 		.irq(irq),
 		.eoi(eoi),

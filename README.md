@@ -250,6 +250,16 @@ Set this to 1 to enable the _external_ Pico Co-Processor Interface (PCPI).
 The external interface is not required for the internal PCPI cores, such as
 `picorv32_pcpi_mul`.
 
+#### ENABLE_ACCEL (default = 0)
+
+Set this to 1 to enable the custom accelerator command instruction and the
+`accel_valid`, `accel_ready`, `accel_cmd`, `accel_arg0`, and `accel_arg1` ports.
+Each instruction passes two 32-bit register values (pointers or scalars) and
+a 7-bit command ID, then continues once the accelerator accepts the request.
+See [Accelerator command instruction](ACCELERATOR.md) for wiring, encoding,
+C examples, memory-sharing requirements, and tests. Available on the native,
+AXI, and Wishbone cores; `ENABLE_PCPI` is not required.
+
 #### ENABLE_MUL (default = 0)
 
 This parameter internally enables PCPI and instantiates the `picorv32_pcpi_mul`

@@ -24,6 +24,13 @@ GIT_ENV = true
 test: testbench.vvp firmware/firmware.hex
 	$(VVP) -N $<
 
+.PHONY: test_accel
+test_accel: testbench_accel.vvp
+	$(VVP) -N $<
+
+testbench_accel.vvp: testbench_accel.v picorv32.v
+	$(IVERILOG) -g2012 -s testbench_accel -o $@ $^
+
 test_vcd: testbench.vvp firmware/firmware.hex
 	$(VVP) -N $< +vcd +trace +noerror
 
