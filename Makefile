@@ -31,6 +31,13 @@ test_accel: testbench_accel.vvp
 testbench_accel.vvp: testbench_accel.v picorv32.v
 	$(IVERILOG) -g2012 -s testbench_accel -o $@ $^
 
+.PHONY: test_npu
+test_npu: testbench_npu.vvp
+	$(VVP) -N $<
+
+testbench_npu.vvp: testbench_npu.v npu_gemm.v picorv32_npu.v picorv32.v
+	$(IVERILOG) -g2012 -s testbench_npu -o $@ $^
+
 test_vcd: testbench.vvp firmware/firmware.hex
 	$(VVP) -N $< +vcd +trace +noerror
 

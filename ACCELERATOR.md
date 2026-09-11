@@ -1,5 +1,9 @@
 # Accelerator command instruction
 
+A connected INT8/INT32 GEMM implementation is available in
+[NPU_GEMM.md](NPU_GEMM.md), with RTL, shared-memory integration, firmware helpers,
+and a self-checking `make test_npu` simulation.
+
 Set `ENABLE_ACCEL = 1` on `picorv32`, `picorv32_axi`, or `picorv32_wb`.
 The default is `0`, so existing named-port instantiations can omit the new
 ports. Positional port instantiations need the five appended ports. External
